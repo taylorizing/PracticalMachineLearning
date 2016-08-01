@@ -1,0 +1,173 @@
+---
+title: "Practical Machine Learning - Project"
+author: "Jason Taylor"
+date: "7/31/2016"
+output: html_document
+---
+
+Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+The training data for this project are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+This paper will show the data processing methods and model building used to predict the class of the particpants.
+
+# Environment Setup
+```{r EnvironmentSetup, message=FALSE, warning=FALSE}
+library(knitr)
+library(caret)
+library(caret)
+library(rpart)
+library(corrplot)
+library(randomForest)
+library(fields)
+```
+# Data Retrieval & Processing
+```{r Data}
+# Download the data
+TrainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+TestUrl  <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+training <- read.csv(url(TrainUrl))
+testing  <- read.csv(url(TestUrl))
+
+# Split data into Training and Test partitions 
+set.seed(999)
+inTrain  <- createDataPartition(training$classe, p = 0.6, list = FALSE)
+TrainSet <- training[inTrain, ]
+TestSet  <- training[-inTrain, ]
+
+# Split TrainSet into 3 equal datasets for cross validation
+set.seed(999)
+inTrainSetSub1 <- createDataPartition(TrainSet$classe, p = 0.33, list=FALSE)
+TrainSetSub1 <- TrainSet[inTrainSetSub1,]
+TrainSetRemainder <- TrainSet[-inTrainSetSub1,]
+set.seed(999)
+inTrainSetSub2 <- createDataPartition(TrainSetRemainder$classe, p=0.5, list=FALSE)
+TrainSetSub2 <- TrainSetRemainder[inTrainSetSub2,]
+TrainSetSub3 <- TrainSetRemainder[-inTrainSetSub2,]
+
+# Divide each of these 3 sets into training (60%) and test (40%) sets.
+set.seed(999)
+inTrain <- createDataPartition(TrainSetSub1$classe, p=0.6, list=FALSE)
+small_training1 <- TrainSetSub1[inTrain,]
+small_testing1 <- TrainSetSub1[-inTrain,]
+set.seed(999)
+inTrain <- createDataPartition(TrainSetSub2$classe, p=0.6, list=FALSE)
+small_training2 <- TrainSetSub2[inTrain,]
+small_testing2 <- TrainSetSub2[-inTrain,]
+set.seed(999)
+inTrain <- createDataPartition(TrainSetSub3$classe, p=0.6, list=FALSE)
+small_training3 <- TrainSetSub3[inTrain,]
+small_testing3 <- TrainSetSub3[-inTrain,]
+
+# Identification and removal of near zero variance predictors
+nearZeroVariants <- nearZeroVar(TrainSet)
+TrainSet <- TrainSet[, -nearZeroVariants]
+small_training1 <- small_training1[, -nearZeroVariants]
+small_training2 <- small_training2[, -nearZeroVariants]
+small_training3 <- small_training3[, -nearZeroVariants]
+TestSet  <- TestSet[, -nearZeroVariants]
+small_testing1 <- small_testing1[, -nearZeroVariants]
+small_testing2 <- small_testing2[, -nearZeroVariants]
+small_testing3 <- small_testing3[, -nearZeroVariants]
+
+# Identification and removal of NA valued predictors
+colsMostlyNAs <- lapply( TrainSet, function(x) sum(is.na(x)) / length(x) ) < 0.1
+TrainSet <- TrainSet[, colsMostlyNAs]
+small_training1 <- small_training1[, colsMostlyNAs]
+small_training2 <- small_training2[, colsMostlyNAs]
+small_training3 <- small_training3[, colsMostlyNAs]
+TestSet <- TestSet[, colsMostlyNAs]
+small_testing1 <- small_testing1[, colsMostlyNAs]
+small_testing2 <- small_testing2[, colsMostlyNAs]
+small_testing3 <- small_testing3[, colsMostlyNAs]
+
+# Remove variables used for identification(columns 1 to 5)
+TrainSet <- TrainSet[, -(1:5)]
+small_training1 <- small_training1[, -(1:5)]
+small_training2 <- small_training2[, -(1:5)]
+small_training3 <- small_training3[, -(1:5)]
+TestSet  <- TestSet[, -(1:5)]
+small_testing1  <- small_testing1[, -(1:5)]
+small_testing2  <- small_testing2[, -(1:5)]
+small_testing3  <- small_testing3[, -(1:5)]
+```
+
+# Model Building
+Two models will be used and the one with the best average accuracy when applied to the cross validated training and test sets will be used to predict on the TestSet for the quiz question.
+A Confusion Matrix is plotted at the end of each analysis to better visualize the accuracy of the models.
+
+# Method 1: Random Forest
+```{r RandomForest}
+controlRF <- trainControl(method = "cv", number = 3, verboseIter = FALSE)
+modFitRandForest <- train(classe ~ ., data = TrainSet, method = "rf", trControl = controlRF)
+modFitRandForest1 <- train(classe ~ ., data = small_training1, method = "rf", trControl = controlRF)
+modFitRandForest2 <- train(classe ~ ., data = small_training2, method = "rf", trControl = controlRF)
+modFitRandForest3 <- train(classe ~ ., data = small_training3, method = "rf", trControl = controlRF)
+modFitRandForest1$finalModel
+modFitRandForest2$finalModel
+modFitRandForest3$finalModel
+
+# Random Forest prediction on Test dataset
+predictRandForest1 <- predict(modFitRandForest1, newdata = small_testing1)
+predictRandForest2 <- predict(modFitRandForest2, newdata = small_testing2)
+predictRandForest3 <- predict(modFitRandForest3, newdata = small_testing3)
+confMatRandForest1 <- confusionMatrix(predictRandForest1, small_testing1$classe)
+confMatRandForest2 <- confusionMatrix(predictRandForest2, small_testing2$classe)
+confMatRandForest3 <- confusionMatrix(predictRandForest3, small_testing3$classe)
+confMatRandForest1
+confMatRandForest2
+confMatRandForest3
+
+# Plot Random Forest resulting confusion matrix for modFitRandForest1, not plotting all to save space.
+plot(confMatRandForest1$table, col = confMatRandForest1$byClass, main = paste("Random Forest - Accuracy =", round(confMatRandForest1$overall['Accuracy'], 4)))
+
+# Accuracy modFitRandForest1: = 97.36%, OOB estimate of  error rate: 3.81%
+# Accuracy modFitRandForest2: = 97.72%, OOB estimate of  error rate: 3.71%
+# Accuracy modFitRandForest3: = 97.46%, OOB estimate of  error rate: 3.63%
+```
+
+# Method 2: Decision Tree
+```{r DecisonTree}
+modFitDecTree1 <- rpart(classe ~ ., data = small_training1, method = "class")
+modFitDecTree2 <- rpart(classe ~ ., data = small_training2, method = "class")
+modFitDecTree3 <- rpart(classe ~ ., data = small_training3, method = "class")
+
+# Decision Tree prediction on Test datasets
+predictDecTree1 <- predict(modFitDecTree1, newdata = small_testing1, type = "class")
+predictDecTree2 <- predict(modFitDecTree2, newdata = small_testing2, type = "class")
+predictDecTree3 <- predict(modFitDecTree3, newdata = small_testing3, type = "class")
+confMatDecTree1 <- confusionMatrix(predictDecTree1, small_testing1$classe)
+confMatDecTree2 <- confusionMatrix(predictDecTree2, small_testing2$classe)
+confMatDecTree3 <- confusionMatrix(predictDecTree3, small_testing3$classe)
+confMatDecTree1
+confMatDecTree2
+confMatDecTree3
+
+# Plot Decision Tree resulting confusion matrix
+plot(confMatDecTree1$table, col = confMatDecTree1$byClass, main = paste("Decision Tree - Accuracy =",
+                                                                        round(confMatDecTree1$overall['Accuracy'], 4)))
+
+# Accuracy modFitDecTree1: = 76.32%
+# Accuracy modFitDecTree2: = 75.13%
+# Accuracy modFitDecTree3: = 72.52%
+```
+
+# Applying the best model to the Test Data (Random Forrest)
+The average accuracy of the regression modeling methods above are:
+
+Random Forest : 97.51%
+Decision Tree : 74.66%
+
+In that case, the Random Forest model will be applied to predict the 20 quiz results (testing dataset) as shown below.
+```{r Prediction}
+predictRandForest <- predict(modFitRandForest, newdata = TestSet)
+confMatRandForest <- confusionMatrix(predictRandForest, TestSet$classe)
+confMatRandForest
+# Accuracy 99.78%
+```
